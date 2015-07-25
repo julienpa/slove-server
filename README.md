@@ -1,1 +1,1 @@
-# Slove Server déveloper documentation
+# Slove Server developer documentation
