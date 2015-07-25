@@ -1,0 +1,12 @@
+{
+  "global": {},
+  "applications": {
+    "Slove": {
+      "applicationId": "bNqrmF49ncJ0LYgfGIFZmReRkqKLFWtuCt2XJQFy",
+      "masterKey": "W8z9I4y7o4x6R59CRfbbav3llNEFJxyYZCh7rYwS"
+    },
+    "_default": {
+      "link": "Slove"
+    }
+  }
+}
