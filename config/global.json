@@ -1,5 +1,7 @@
 {
-  "global": {},
+  "global": {
+    "parseVersion": "1.5.0"
+  },
   "applications": {
     "Slove": {
       "applicationId": "bNqrmF49ncJ0LYgfGIFZmReRkqKLFWtuCt2XJQFy",
