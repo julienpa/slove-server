@@ -1,3 +1,5 @@
+(function() {
+'use strict';
 
 // Use Parse.Cloud.define to define as many cloud functions as you want.
 Parse.Cloud.define('slove', function(request, response) {
@@ -32,9 +34,6 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
     else {
       var verificationCode = Math.floor(Math.random() * 9999).toString();
       // Ensures that the code is exactly 4 characters long
-      if (verificationCode.length > 4) {
-        verificationCode = verificationCode.slice(0, 4);
-      }
       while (verificationCode.length < 4) {
         verificationCode = '0' + verificationCode;
       }
@@ -72,6 +71,8 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
     response.success({ status: 'ok' });
   }
   else {
-    response.error({ status: 'code_not_matching' });
+    response.error('codes_dont_match');
   }
 });
+
+})();
