@@ -7,7 +7,7 @@ Parse.Cloud.define('slove', function(request, response) {
 });
 
 /**
- * Twilio
+ * Twilio (phone confirmation)
  */
 var twilioTestMode = true;
 
@@ -27,8 +27,8 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
   var query = new Parse.Query('_User');
 
   query.equalTo('phoneNumber', phoneNumber);
-  query.find().then(function(queryData) {
-    if (queryData.length > 0) {
+  query.find().then(function(results) {
+    if (results.length > 0) {
       response.error('phone_number_already_used');
     }
     else {
@@ -73,6 +73,52 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
   else {
     response.error('codes_dont_match');
   }
+});
+
+/**
+ * Contacts
+ */
+Parse.Cloud.define('getRegisteredContacts', function(request, response) {
+  var phoneNumbers = request.params.phoneNumbers;
+  // Check if param was sent correctly
+  if (phoneNumbers === undefined) {
+    response.error('missing_param');
+    return;
+  }
+  // Check if param is in the expected format
+  if (!Array.isArray(phoneNumbers)) {
+    response.error('param_is_not_an_array');
+    return;
+  }
+
+  // Run the query with supplied param and send back formated results,
+  // or send an error message if no match was found
+  var registeredContacts = [];
+  var userObject = {
+    username: '',
+    phoneNumber: '',
+    pictureUrl: ''
+  };
+  var currentUser;
+  var query = new Parse.Query('_User');
+  query.containedIn('phoneNumber', phoneNumbers);
+  query.each(function(user) {
+    currentUser = Object.create(userObject);
+    currentUser.username = user.get('username') ? user.get('username') : '';
+    currentUser.pictureUrl = user.get('pictureUrl') ? user.get('pictureUrl') : '';
+    // We know this one is present because it matched
+    currentUser.phoneNumber = user.get('phoneNumber');
+    // Save it to the list that we will return
+    registeredContacts.push(currentUser);
+  })
+  .then(function() {
+    if (registeredContacts.length > 0) {
+      response.success({ status: 'ok', registeredContacts: registeredContacts });
+    }
+    else {
+      response.error('no_user_found_for_these_numbers');
+    }
+  });
 });
 
 })();
