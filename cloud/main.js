@@ -1,32 +1,46 @@
+(function() {
+'use strict';
 
 // Use Parse.Cloud.define to define as many cloud functions as you want.
-// For example:
-Parse.Cloud.define('hello', function(request, response) {
-  response.success('Hello world!');
+Parse.Cloud.define('slove', function(request, response) {
+  response.success('You\'ve been sloved!');
 });
 
 /**
- * Twilio test
+ * Twilio (phone confirmation)
  */
+var twilioTestMode = true;
+
+var testSid = 'AC67aa36effde530903ec7d9a2b11b9498';
+var testTok = '0b508f57260346c4b909d3f4e063c3b3';
+var liveSid = 'AC7848a69b13ee905acf3aa3fc00a32270';
+var liveTok = '30d9b2319348852525081e14ce693749';
+
 var twilio = require('twilio')(
-  'AC67aa36effde530903ec7d9a2b11b9498',
-  '0b508f57260346c4b909d3f4e063c3b3'
+  twilioTestMode ? testSid : liveSid,
+  twilioTestMode ? testTok : liveTok
 );
 
 // Parse Cloud Function
 Parse.Cloud.define('sendPhoneCode', function(request, response) {
   var phoneNumber = request.params.phoneNumber;
   var query = new Parse.Query('_User');
-  query.equalTo('phoneNumber', phoneNumber);
 
-  query.find().then(function(queryData) {
-    if (queryData.length > 0) {
-      response.error({ status: 'phone_number_already_used' });
+  query.equalTo('phoneNumber', phoneNumber);
+  query.find().then(function(results) {
+    if (results.length > 0) {
+      response.error('phone_number_already_used');
     }
     else {
-      var verificationCode = Math.floor(Math.random() * 9999);
+      var verificationCode = Math.floor(Math.random() * 9999).toString();
+      // Ensures that the code is exactly 4 characters long
+      while (verificationCode.length < 4) {
+        verificationCode = '0' + verificationCode;
+      }
+
+      // Save the verificationCode for the user who requested the validation
       var user = Parse.User.current();
-      user.set('phoneVerificationCode', verificationCode.toString());
+      user.set('phoneVerificationCode', verificationCode);
       user.save();
 
       twilio.sendSms({
@@ -40,8 +54,7 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
           response.success(responseData);
         }
         else {
-          errorData.status = 'failed_to_send';
-          response.error(errorData);
+          response.error('failed_to_send');
         }
       });
     }
@@ -51,12 +64,61 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
 Parse.Cloud.define('confirmPhoneCode', function(request, response) {
   var user = Parse.User.current();
   var verificationCode = user.get('phoneVerificationCode');
+
   if (verificationCode === request.params.phoneVerificationCode) {
     user.set('phoneNumber', request.params.phoneNumber);
     user.save();
     response.success({ status: 'ok' });
   }
   else {
-    response.error({ status: 'code_not_matching' });
+    response.error('codes_dont_match');
   }
 });
+
+/**
+ * Contacts
+ */
+Parse.Cloud.define('getRegisteredContacts', function(request, response) {
+  var phoneNumbers = request.params.phoneNumbers;
+  // Check if param was sent correctly
+  if (phoneNumbers === undefined) {
+    response.error('missing_param');
+    return;
+  }
+  // Check if param is in the expected format
+  if (!Array.isArray(phoneNumbers)) {
+    response.error('param_is_not_an_array');
+    return;
+  }
+
+  // Run the query with supplied param and send back formated results,
+  // or send an error message if no match was found
+  var registeredContacts = [];
+  var userObject = {
+    username: '',
+    phoneNumber: '',
+    pictureUrl: ''
+  };
+  var currentUser;
+  var query = new Parse.Query('_User');
+  query.containedIn('phoneNumber', phoneNumbers);
+  query.each(function(user) {
+    currentUser = Object.create(userObject);
+    currentUser.username = user.get('username') ? user.get('username') : '';
+    currentUser.pictureUrl = user.get('pictureUrl') ? user.get('pictureUrl') : '';
+    // We know this one is present because it matched
+    currentUser.phoneNumber = user.get('phoneNumber');
+    // Save it to the list that we will return
+    registeredContacts.push(currentUser);
+  })
+  .then(function() {
+    if (registeredContacts.length > 0) {
+      response.success({ status: 'ok', registeredContacts: registeredContacts });
+    }
+    else {
+      response.error('no_user_found_for_these_numbers');
+    }
+  });
+});
+
+})();
