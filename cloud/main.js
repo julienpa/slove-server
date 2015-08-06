@@ -29,7 +29,7 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
   query.equalTo('phoneNumber', phoneNumber);
   query.find().then(function(results) {
     if (results.length > 0) {
-      response.error('phone_number_already_used');
+      response.error('error_phone_number_already_used');
     }
     else {
       var verificationCode = Math.floor(Math.random() * 9999).toString();
@@ -54,7 +54,7 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
           response.success(responseData);
         }
         else {
-          response.error('failed_to_send');
+          response.error('error_failed_to_send');
         }
       });
     }
@@ -71,23 +71,23 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
     response.success({ status: 'ok' });
   }
   else {
-    response.error('codes_dont_match');
+    response.error('error_codes_dont_match');
   }
 });
 
 /**
- * Contacts
+ * Contacts and Facebook friends
  */
 Parse.Cloud.define('getRegisteredContacts', function(request, response) {
   var phoneNumbers = request.params.phoneNumbers;
   // Check if param was sent correctly
   if (phoneNumbers === undefined) {
-    response.error('missing_param');
+    response.error('error_missing_param');
     return;
   }
   // Check if param is in the expected format
   if (!Array.isArray(phoneNumbers)) {
-    response.error('param_is_not_an_array');
+    response.error('error_param_is_not_an_array');
     return;
   }
 
@@ -116,7 +116,50 @@ Parse.Cloud.define('getRegisteredContacts', function(request, response) {
       response.success({ status: 'ok', registeredContacts: registeredContacts });
     }
     else {
-      response.error('no_user_found_for_these_numbers');
+      response.error('error_no_user_found_for_supplied_numbers');
+    }
+  });
+});
+
+Parse.Cloud.define('getRegisteredFriends', function(request, response) {
+  var facebookIds = request.params.facebookIds;
+  // Check if param was sent correctly
+  if (facebookIds === undefined) {
+    response.error('error_missing_param');
+    return;
+  }
+  // Check if param is in the expected format
+  if (!Array.isArray(facebookIds)) {
+    response.error('error_param_is_not_an_array');
+    return;
+  }
+
+  // Run the query with supplied param and send back formated results,
+  // or send an error message if no match was found
+  var registeredFriends = [];
+  var userObject = {
+    username: '',
+    facebookId: '',
+    pictureUrl: ''
+  };
+  var currentUser;
+  var query = new Parse.Query('_User');
+  query.containedIn('facebookId', facebookIds);
+  query.each(function(user) {
+    currentUser = Object.create(userObject);
+    currentUser.username = user.get('username') ? user.get('username') : '';
+    currentUser.pictureUrl = user.get('pictureUrl') ? user.get('pictureUrl') : '';
+    // We know this one is present because it matched
+    currentUser.facebookId = user.get('facebookId');
+    // Save it to the list that we will return
+    registeredFriends.push(currentUser);
+  })
+  .then(function() {
+    if (registeredFriends.length > 0) {
+      response.success({ status: 'ok', registeredFriends: registeredFriends });
+    }
+    else {
+      response.error('error_no_user_found_for_supplied_fb_ids');
     }
   });
 });
