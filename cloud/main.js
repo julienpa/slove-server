@@ -180,6 +180,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         return;
       }
 
+      // Create Slove object that will be passed the data and saved
       var Slove = Parse.Object.extend('Slove');
       var slove = new Slove();
 
@@ -228,7 +229,23 @@ Parse.Cloud.define('sendSlove', function(request, response) {
       response.error('error_user_request_failed');
     }
   });
+});
 
+// Setting permissions on the Slove object
+Parse.Cloud.afterSave('Slove', function(request) {
+  var user = Parse.User.current();
+
+  // Check if the object was just created
+  if (request.object.existed() === false) {
+    // No public read nor write
+    var acl = new Parse.ACL();
+    acl.setPublicReadAccess(false);
+    acl.setPublicWriteAccess(false);
+    acl.setReadAccess(user.id, true);
+    // Apply ACL to the object and save
+    request.object.setACL(acl);
+    request.object.save();
+  }
 });
 
 })();
