@@ -1,6 +1,9 @@
 (function() {
 'use strict';
 
+// Load module dependencies
+var _ = require('underscore');
+
 // Use Parse.Cloud.define to define as many cloud functions as you want.
 Parse.Cloud.define('slove', function(request, response) {
   response.success('You\'ve been sloved!');
@@ -24,7 +27,7 @@ var twilio = require('twilio')(
 // Parse Cloud Function
 Parse.Cloud.define('sendPhoneCode', function(request, response) {
   var phoneNumber = request.params.phoneNumber;
-  var query = new Parse.Query('_User');
+  var query = new Parse.Query(Parse.User);
 
   query.equalTo('phoneNumber', phoneNumber);
   query.find().then(function(results) {
@@ -32,11 +35,7 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
       response.error('error_phone_number_already_used');
     }
     else {
-      var verificationCode = Math.floor(Math.random() * 9999).toString();
-      // Ensures that the code is exactly 4 characters long
-      while (verificationCode.length < 4) {
-        verificationCode = '0' + verificationCode;
-      }
+      var verificationCode = _.random(1000, 9999).toString();
 
       // Save the verificationCode for the user who requested the validation
       var user = Parse.User.current();
@@ -100,7 +99,7 @@ Parse.Cloud.define('getRegisteredContacts', function(request, response) {
     pictureUrl: ''
   };
   var currentUser;
-  var query = new Parse.Query('_User');
+  var query = new Parse.Query(Parse.User);
   query.containedIn('phoneNumber', phoneNumbers);
   query.each(function(user) {
     currentUser = Object.create(userObject);
@@ -143,7 +142,7 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
     pictureUrl: ''
   };
   var currentUser;
-  var query = new Parse.Query('_User');
+  var query = new Parse.Query(Parse.User);
   query.containedIn('facebookId', facebookIds);
   query.each(function(user) {
     currentUser = Object.create(userObject);
@@ -162,6 +161,74 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
       response.error('error_no_user_found_for_supplied_fb_ids');
     }
   });
+});
+
+/**
+ * Serious business: send Slove and Push notifs!
+ */
+Parse.Cloud.define('sendSlove', function(request, response) {
+  // Retrieve users
+  var slover = Parse.User.current();
+  var targetUsername = request.params.username;
+  // Retrieve sloved user info
+  var query = new Parse.Query(Parse.User);
+  query.equalTo('username', targetUsername);
+  query.first({
+    success: function(target) {
+      if (!target) {
+        response.error('error_username_doesnt_exist');
+        return;
+      }
+
+      var Slove = Parse.Object.extend('Slove');
+      var slove = new Slove();
+
+      // Create the Slove to be saved
+      var sloveData = {
+        slover: slover,
+        sloved: target
+      };
+
+      // Saving Slove in database
+      slove.save(sloveData, {
+        success: function(savedSlove) {
+          console.log({ savedSlove: savedSlove.id });
+          // Slove saved successfully, trying to send Slove push
+          var pushData = {
+            channels: [targetUsername],
+            data: {
+              alert: 'You received a Slove from ' + slover.get('username'),
+              badge: 'Increment',
+              sound: 'Congratsbuild2.wav',
+              slover: {
+                username: slover.get('username'),
+                pictureUrl: slover.get('pictureUrl')
+              }
+            }
+          };
+          var pushOptions = {
+            success: function() {
+              // Push was sent successfully
+              response.success({ status: 'ok', sloved: targetUsername });
+            },
+            error: function(error) {
+              response.error('error_push_couldnt_be_sent');
+            }
+          };
+          Parse.Push.send(pushData, pushOptions);
+        },
+        error: function(slove, error) {
+          // The save failed.
+          // error is a Parse.Error with an error code and message.
+          response.error('error_slove_couldnt_be_saved');
+        }
+      });
+    },
+    error: function() {
+      response.error('error_user_request_failed');
+    }
+  });
+
 });
 
 })();
