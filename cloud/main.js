@@ -180,6 +180,11 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         return;
       }
 
+      if (slover.get('sloveCounter') < 1) {
+        response.error('error_not_enough_slove');
+        return;
+      }
+
       // Create Slove object that will be passed the data and saved
       var Slove = Parse.Object.extend('Slove');
       var slove = new Slove();
@@ -194,7 +199,11 @@ Parse.Cloud.define('sendSlove', function(request, response) {
       slove.save(sloveData, {
         success: function(savedSlove) {
           console.log({ savedSlove: savedSlove.id });
-          // Slove saved successfully, trying to send Slove push
+
+          /**
+           * Slove saved successfully, trying to send Slove push
+           * Update of the sloveCounter takes place in an afterSave hook
+           */
           var pushData = {
             channels: [targetUsername],
             data: {
@@ -231,19 +240,48 @@ Parse.Cloud.define('sendSlove', function(request, response) {
   });
 });
 
-// Setting permissions on the Slove object
+/**
+ * 1) Updating sloveCounter for both users
+ * 2) Setting permissions on the Slove object
+ */
 Parse.Cloud.afterSave('Slove', function(request) {
-  var user = Parse.User.current();
+  Parse.Cloud.useMasterKey();
 
   // Check if the object was just created
   if (request.object.existed() === false) {
+    // 1)
+    // Slover
+    request.object.get('slover').fetch().then(function(slover) {
+      var sloverCounter = slover.get('sloveCounter');
+      slover.set('sloveCounter', sloverCounter - 1);
+      slover.save();
+    });
+    // Sloved
+    request.object.get('sloved').fetch().then(function(sloved) {
+      var slovedCounter = sloved.get('sloveCounter');
+      sloved.set('sloveCounter', slovedCounter + 1);
+      sloved.save();
+    });
+
+    // 2)
     // No public read nor write
     var acl = new Parse.ACL();
     acl.setPublicReadAccess(false);
     acl.setPublicWriteAccess(false);
-    acl.setReadAccess(user.id, true);
     // Apply ACL to the object and save
     request.object.setACL(acl);
+    request.object.save();
+  }
+});
+
+/**
+ * User
+ */
+Parse.Cloud.afterSave(Parse.User, function(request) {
+  // Check if the object was just created
+  if (request.object.existed() === false) {
+    // No public read nor write
+    request.object.set('sloveCounter', 10);
     request.object.save();
   }
 });
