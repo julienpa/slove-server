@@ -209,7 +209,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
             data: {
               alert: 'You received a Slove from ' + slover.get('username'),
               badge: 'Increment',
-              sound: 'Congratsbuild2.wav',
+              sound: 'Assets/Sound/Congratsbuild2.wav',
               slover: {
                 username: slover.get('username'),
                 pictureUrl: slover.get('pictureUrl')
@@ -277,13 +277,13 @@ Parse.Cloud.afterSave('Slove', function(request) {
 /**
  * User
  */
-Parse.Cloud.afterSave(Parse.User, function(request) {
+Parse.Cloud.beforeSave(Parse.User, function(request, response) {
   // Check if the object was just created
   if (request.object.existed() === false) {
-    // No public read nor write
+    // Set arbitrary default number. Could be set differently...
     request.object.set('sloveCounter', 10);
-    request.object.save();
   }
+  response.success();
 });
 
 })();
