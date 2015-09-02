@@ -12,12 +12,16 @@ Parse.Cloud.define('slove', function(request, response) {
 /**
  * Twilio (phone confirmation)
  */
-var twilioTestMode = true;
+var twilioTestMode = false;
 
 var testSid = 'AC67aa36effde530903ec7d9a2b11b9498';
 var testTok = '0b508f57260346c4b909d3f4e063c3b3';
 var liveSid = 'AC7848a69b13ee905acf3aa3fc00a32270';
 var liveTok = '30d9b2319348852525081e14ce693749';
+
+var sandboxPin = '9863-5189';
+var sandboxPhone = '+33644600124';
+var testPhone = '+15005550006';
 
 var twilio = require('twilio')(
   twilioTestMode ? testSid : liveSid,
@@ -42,10 +46,11 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
       user.set('phoneVerificationCode', verificationCode);
       user.save();
 
+      var sms = 'Hi from Slove! Your verification code is: ' + verificationCode;
       twilio.sendSms({
-        From: '+15005550006',
+        From: twilioTestMode ? testPhone : sandboxPhone,
         To: phoneNumber,
-        Body: 'Hi from Slove! Your verification code is: ' + verificationCode
+        Body: twilioTestMode ? sandboxPin + ' ' + sms : sms
       },
       function(errorData, responseData) {
         if (!errorData) {
