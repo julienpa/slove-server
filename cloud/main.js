@@ -1,3 +1,5 @@
+/* global Parse */
+/* global console */
 (function() {
 'use strict';
 
@@ -227,6 +229,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
               response.success({ status: 'ok', sloved: targetUsername });
             },
             error: function(error) {
+              console.log({ pushError: error })
               response.error('error_push_couldnt_be_sent');
             }
           };
@@ -235,6 +238,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         error: function(slove, error) {
           // The save failed.
           // error is a Parse.Error with an error code and message.
+          console.log({ sendSloveError: error })
           response.error('error_slove_couldnt_be_saved');
         }
       });
@@ -286,9 +290,69 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
   // Check if the object was just created
   if (request.object.existed() === false) {
     // Set arbitrary default number. Could be set differently...
-    request.object.set('sloveCounter', 10);
+    request.object.set('sloveCounter', 5);
   }
   response.success();
+});
+
+/**
+ * Favorites
+ */
+Parse.Cloud.define('getFavoriteContacts', function(request, response) {
+  // do the business
+  // create Parse object type: Favorite
+});
+
+/**
+ * Relations
+ */
+Parse.Cloud.define('addRelation', function(request, response) {
+  // Retrieve users
+  var currentUser = Parse.User.current();
+  var newRelationUsername = request.params.username;
+  // Retrieve newRelation user info
+  var query = new Parse.Query(Parse.User);
+  query.equalTo('username', newRelationUsername);
+  query.first({
+    success: function(newRelation) {
+      if (!newRelation) {
+        response.error('error_username_doesnt_exist');
+        return;
+      }
+
+      // Create Relation object that will be passed the data and saved
+      var Relation = Parse.Object.extend('Relation');
+      var relation = new Relation();
+
+      // Create the Relation to be saved
+      var relationData = {
+        byUser: currentUser,
+        targetUser: newRelation
+      };
+
+      // Saving Relation in database
+      relation.save(relationData, {
+        success: function(savedRelation) {
+          response.success({ status: 'ok', newRelation: savedRelation.id });
+        },
+        error: function(slove, error) {
+          // The save failed.
+          // error is a Parse.Error with an error code and message.
+          console.log({ newRelationError: error });
+          response.error('error_relation_couldnt_be_saved');
+        }
+      });
+    },
+    error: function() {
+      response.error('error_user_request_failed');
+    }
+  });
+});
+
+Parse.Cloud.define('getRelations', function(request, response) {
+  console.log(request);
+  console.log(response);
+  // do the business
 });
 
 })();
