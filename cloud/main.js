@@ -122,7 +122,7 @@ Parse.Cloud.define('getRegisteredContacts', function(request, response) {
       response.success({ status: 'ok', registeredContacts: registeredContacts });
     }
     else {
-      response.error('error_no_user_found_for_supplied_numbers');
+      response.error('error_no_user_found');
     }
   });
 });
@@ -165,7 +165,7 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
       response.success({ status: 'ok', registeredFriends: registeredFriends });
     }
     else {
-      response.error('error_no_user_found_for_supplied_fb_ids');
+      response.error('error_no_user_found');
     }
   });
 });
@@ -229,7 +229,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
               response.success({ status: 'ok', sloved: targetUsername });
             },
             error: function(error) {
-              console.log({ pushError: error })
+              console.log({ pushError: error });
               response.error('error_push_couldnt_be_sent');
             }
           };
@@ -238,7 +238,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         error: function(slove, error) {
           // The save failed.
           // error is a Parse.Error with an error code and message.
-          console.log({ sendSloveError: error })
+          console.log({ sendSloveError: error });
           response.error('error_slove_couldnt_be_saved');
         }
       });
@@ -296,63 +296,86 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 });
 
 /**
- * Favorites
+ * Follows
  */
-Parse.Cloud.define('getFavoriteContacts', function(request, response) {
-  // do the business
-  // create Parse object type: Favorite
-});
-
-/**
- * Relations
- */
-Parse.Cloud.define('addRelation', function(request, response) {
+Parse.Cloud.define('addFollow', function(request, response) {
   // Retrieve users
   var currentUser = Parse.User.current();
-  var newRelationUsername = request.params.username;
+  var newFollowUsername = request.params.username;
   // Retrieve newRelation user info
   var query = new Parse.Query(Parse.User);
-  query.equalTo('username', newRelationUsername);
+  query.equalTo('username', newFollowUsername);
   query.first({
-    success: function(newRelation) {
-      if (!newRelation) {
+    success: function(newFollow) {
+      if (!newFollow) {
         response.error('error_username_doesnt_exist');
         return;
       }
 
       // Create Relation object that will be passed the data and saved
-      var Relation = Parse.Object.extend('Relation');
-      var relation = new Relation();
+      var Follow = Parse.Object.extend('Follow');
+      var follow = new Follow();
 
       // Create the Relation to be saved
-      var relationData = {
-        byUser: currentUser,
-        targetUser: newRelation
+      var followData = {
+        from: currentUser,
+        to: newFollow
       };
 
       // Saving Relation in database
-      relation.save(relationData, {
-        success: function(savedRelation) {
-          response.success({ status: 'ok', newRelation: savedRelation.id });
+      follow.save(followData, {
+        success: function(savedFollow) {
+          response.success({ status: 'ok', newFollow: savedFollow.id });
         },
-        error: function(slove, error) {
+        error: function(follow, error) {
           // The save failed.
           // error is a Parse.Error with an error code and message.
-          console.log({ newRelationError: error });
-          response.error('error_relation_couldnt_be_saved');
+          console.log({ newFollowError: error });
+          response.error('error_follow_couldnt_be_saved');
         }
       });
     },
     error: function() {
-      response.error('error_user_request_failed');
+      response.error('error_request_failed');
     }
   });
 });
 
-Parse.Cloud.define('getRelations', function(request, response) {
-  console.log(request);
-  console.log(response);
-  // do the business
+Parse.Cloud.define('getFollows', function(request, response) {
+  var query = new Parse.Query('Follow');
+
+  // Tells the query to retrieve the user objects, not just the reference to them
+  query.include('to');
+
+  // Add query condition to get only current user's follows
+  query.equalTo('from', Parse.User.current());
+
+  // Prepare data
+  var follows = [];
+  var userObject = {
+    username: '',
+    pictureUrl: ''
+  };
+  var currentUser;
+  var followedUser;
+
+  // Execute query and loop through results
+  query.each(function(follow) {
+    followedUser = follow.get('to');
+    currentUser = Object.create(userObject);
+    currentUser.username = followedUser.get('username') ? followedUser.get('username') : '';
+    currentUser.pictureUrl = followedUser.get('pictureUrl') ? followedUser.get('pictureUrl') : '';
+    // Save it to the list that we will return
+    follows.push(currentUser);
+  })
+  .then(function() {
+    if (follows.length > 0) {
+      response.success({ status: 'ok', follows: follows });
+    }
+    else {
+      response.error('error_no_user_found');
+    }
+  });
 });
 
 })();
