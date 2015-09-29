@@ -59,7 +59,7 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
           response.success(responseData);
         }
         else {
-          console.log(errorData);
+          console.error(errorData);
           response.error('error_failed_to_send');
         }
       });
@@ -214,7 +214,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
           var pushData = {
             channels: [targetUsername],
             data: {
-              alert: 'You received a Slove from ' + slover.get('username'),
+              alert: '♥ New Slove ♥',
               badge: 'Increment',
               sound: 'Assets/Sound/Congratsbuild2.wav',
               slover: {
@@ -229,7 +229,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
               response.success({ status: 'ok', sloved: targetUsername });
             },
             error: function(error) {
-              console.log({ pushError: error });
+              console.error({ pushError: error });
               response.error('error_push_couldnt_be_sent');
             }
           };
@@ -238,7 +238,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         error: function(slove, error) {
           // The save failed.
           // error is a Parse.Error with an error code and message.
-          console.log({ sendSloveError: error });
+          console.error({ sendSloveError: error });
           response.error('error_slove_couldnt_be_saved');
         }
       });
@@ -250,7 +250,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
 });
 
 /**
- * 1) Updating sloveCounter for both users
+ * 1) Updating sloveCounter for the slover
  * 2) Setting permissions on the Slove object
  */
 Parse.Cloud.afterSave('Slove', function(request) {
@@ -259,17 +259,11 @@ Parse.Cloud.afterSave('Slove', function(request) {
   // Check if the object was just created
   if (request.object.existed() === false) {
     // 1)
-    // Slover
+    // Slover counter update
     request.object.get('slover').fetch().then(function(slover) {
       var sloverCounter = slover.get('sloveCounter');
       slover.set('sloveCounter', sloverCounter - 1);
       slover.save();
-    });
-    // Sloved
-    request.object.get('sloved').fetch().then(function(sloved) {
-      var slovedCounter = sloved.get('sloveCounter');
-      sloved.set('sloveCounter', slovedCounter + 1);
-      sloved.save();
     });
 
     // 2)
@@ -284,6 +278,36 @@ Parse.Cloud.afterSave('Slove', function(request) {
 });
 
 /**
+ * Background job meant to be executed every day to give users their daily amount of Sloves
+ */
+Parse.Cloud.job('dailySloveDistribution', function(request, status) {
+  // Set up to modify user data
+  Parse.Cloud.useMasterKey();
+  // Counter of updated users
+  var counter = 0;
+  // Query for all users (@todo: add timezone management later)
+  var query = new Parse.Query(Parse.User);
+  query.each(function(user) {
+    counter++;
+    // Reinit sloveNumber(-Counter, to rename?) based on sloveCredit value
+    user.set('sloveCounter', user.get('sloveCredit'));
+    return user.save();
+  })
+  .then(
+    function() {
+      // Set the job's success status
+      status.message(counter + ' users processed');
+      status.success('Job finished successfully');
+    },
+    function(error) {
+      // Set the job's error status
+      console.error(error);
+      status.error('Job encountered an error');
+    }
+  );
+});
+
+/**
  * User
  */
 Parse.Cloud.beforeSave(Parse.User, function(request, response) {
@@ -291,6 +315,7 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
   if (request.object.existed() === false) {
     // Set arbitrary default number. Could be set differently...
     request.object.set('sloveCounter', 5);
+    request.object.set('sloveCredit', 5);
   }
   response.success();
 });
@@ -330,7 +355,7 @@ Parse.Cloud.define('addFollow', function(request, response) {
         error: function(follow, error) {
           // The save failed.
           // error is a Parse.Error with an error code and message.
-          console.log({ newFollowError: error });
+          console.error({ newFollowError: error });
           response.error('error_follow_couldnt_be_saved');
         }
       });
