@@ -214,7 +214,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
           var pushData = {
             channels: [targetUsername],
             data: {
-              alert: '♥ New Slove ♥',
+              alert: '♥ New Slove from ' + slover.get('username') + ' ♥',
               badge: 'Increment',
               sound: 'Assets/Sound/Congratsbuild2.wav',
               slover: {
@@ -393,12 +393,65 @@ Parse.Cloud.define('getFollows', function(request, response) {
     // Save it to the list that we will return
     follows.push(currentUser);
   })
-  .then(function() {
-    if (follows.length > 0) {
+  .then(
+    function() {
       response.success({ status: 'ok', follows: follows });
+    },
+    function() {
+      response.error('error_request_failed');
     }
-    else {
-      response.error('error_no_user_found');
+  );
+});
+
+/**
+ * Activity
+ */
+Parse.Cloud.define('getActivities', function(request, response) {
+  var query = new Parse.Query('Activity');
+
+  // Limit number of activities returned, and order them by date
+  query.limit(20);
+  query.descending('createdAt');
+
+  // Tells the query to retrieve the relatedUser objects, not just the reference to them
+  query.include('relatedUser');
+
+  // Add query condition to get only current user's activity
+  query.equalTo('user', Parse.User.current());
+
+  // Prepare data
+  var activities = [];
+  var activityObject = {
+    isNew: false,
+    activityType: '',
+    activityValue: 0,
+    relatedUser: ''
+  };
+  var currentActivity;
+  var relatedUser;
+
+  // Execute query and create result list
+  query.find({
+    success: function(results) {
+      _.each(results, function(activity) {
+        // Create and populate a sample activity object
+        relatedUser = activity.get('relatedUser') ? activity.get('relatedUser') : null;
+
+        currentActivity = Object.create(activityObject);
+        currentActivity.activityType = activity.get('activityType') ? activity.get('activityType') : '';
+        currentActivity.activityValue = activity.get('activityValue') ? activity.get('activityValue') : 0;
+        currentActivity.relatedUser = relatedUser ? relatedUser.get('username') : '';
+
+        // Save it to the list that we will return
+        activities.push(currentActivity);
+      });
+
+      // Send data back
+      response.success({ status: 'ok', activities: activities });
+    },
+    error: function(error) {
+      console.error('getActivities failed: ' + error.message + ' (code: ' + error.code + ')');
+      response.error('error_request_failed');
     }
   });
 });
