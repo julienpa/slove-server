@@ -407,6 +407,10 @@ Parse.Cloud.define('getFollows', function(request, response) {
  * Activity
  */
 Parse.Cloud.define('getActivities', function(request, response) {
+  // Create Date object based on passed param, or create a default object with January 1st 2015
+  var dateLastUpdate = request.params.dateLastUpdate ? new Date(request.params.dateLastUpdate) : new Date(2015, 0, 1);
+
+  // Create query object
   var query = new Parse.Query('Activity');
 
   // Limit number of activities returned, and order them by date
@@ -422,10 +426,11 @@ Parse.Cloud.define('getActivities', function(request, response) {
   // Prepare data
   var activities = [];
   var activityObject = {
-    isNew: false,
     activityType: '',
     activityValue: 0,
-    relatedUser: ''
+    relatedUser: '',
+    createdAt: '',
+    isNew: false
   };
   var currentActivity;
   var relatedUser;
@@ -434,20 +439,23 @@ Parse.Cloud.define('getActivities', function(request, response) {
   query.find({
     success: function(results) {
       _.each(results, function(activity) {
-        // Create and populate a sample activity object
+        // Get related user object fetched through pointer
         relatedUser = activity.get('relatedUser') ? activity.get('relatedUser') : null;
 
+        // Create and populate a sample activity object
         currentActivity = Object.create(activityObject);
         currentActivity.activityType = activity.get('activityType') ? activity.get('activityType') : '';
         currentActivity.activityValue = activity.get('activityValue') ? activity.get('activityValue') : 0;
         currentActivity.relatedUser = relatedUser ? relatedUser.get('username') : '';
+        currentActivity.createdAt = activity.createdAt.toISOString();
+        currentActivity.isNew = dateLastUpdate < activity.createdAt;
 
         // Save it to the list that we will return
         activities.push(currentActivity);
       });
 
       // Send data back
-      response.success({ status: 'ok', activities: activities });
+      response.success({ status: 'ok', dateLastUpdate: dateLastUpdate.toISOString(), activities: activities });
     },
     error: function(error) {
       console.error('getActivities failed: ' + error.message + ' (code: ' + error.code + ')');
