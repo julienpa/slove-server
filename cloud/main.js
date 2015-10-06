@@ -12,25 +12,27 @@ Parse.Cloud.define('slove', function(request, response) {
 });
 
 /**
- * Twilio (phone confirmation)
+ * Phone number confirmation
  */
-var twilioLiveMode = true;
-
-var testSid = 'AC67aa36effde530903ec7d9a2b11b9498';
-var testTok = '0b508f57260346c4b909d3f4e063c3b3';
-var liveSid = 'AC7848a69b13ee905acf3aa3fc00a32270';
-var liveTok = '30d9b2319348852525081e14ce693749';
-
-var sandboxPin = '9863-5189';
-var sandboxPhone = '+33644600124';
-var livePhone = '+16466933339';
-
-var twilio = require('twilio')(
-  twilioLiveMode ? liveSid : testSid,
-  twilioLiveMode ? liveTok : testTok
-);
-
 Parse.Cloud.define('sendPhoneCode', function(request, response) {
+  // Twilio (phone confirmation)
+  var twilioLiveMode = true;
+
+  var testSid = 'AC67aa36effde530903ec7d9a2b11b9498';
+  var testTok = '0b508f57260346c4b909d3f4e063c3b3';
+  var liveSid = 'AC7848a69b13ee905acf3aa3fc00a32270';
+  var liveTok = '30d9b2319348852525081e14ce693749';
+
+  var sandboxPin = '9863-5189';
+  var sandboxPhone = '+33644600124';
+  var livePhone = '+16466933339';
+
+  var twilio = require('twilio')(
+    twilioLiveMode ? liveSid : testSid,
+    twilioLiveMode ? liveTok : testTok
+  );
+
+  // Param and query object
   var phoneNumber = request.params.phoneNumber;
   var query = new Parse.Query(Parse.User);
 
@@ -251,7 +253,8 @@ Parse.Cloud.define('sendSlove', function(request, response) {
 
 /**
  * 1) Updating sloveCounter for the slover
- * 2) Setting permissions on the Slove object
+ * 2) Create activity line for the sloved
+ * 3) Setting permissions on the Slove object
  */
 Parse.Cloud.afterSave('Slove', function(request) {
   Parse.Cloud.useMasterKey();
@@ -260,13 +263,27 @@ Parse.Cloud.afterSave('Slove', function(request) {
   if (request.object.existed() === false) {
     // 1)
     // Slover counter update
-    request.object.get('slover').fetch().then(function(slover) {
-      var sloverCounter = slover.get('sloveCounter');
-      slover.set('sloveCounter', sloverCounter - 1);
-      slover.save();
+    var slover = request.object.get('slover');
+    var sloved = request.object.get('sloved');
+    // Update slover counter
+    slover.fetch().then(function(sloverObject) {
+      sloverObject.increment('sloveCounter', -1);
+      sloverObject.save();
     });
 
     // 2)
+    // Add activity
+    var Activity = Parse.Object.extend('Activity');
+    var activity = new Activity();
+    var activityData = {
+      user: sloved,
+      activityType: 'slove',
+      activityValue: 1,
+      relatedUser: slover
+    };
+    activity.save(activityData);
+
+    // 3)
     // No public read nor write
     var acl = new Parse.ACL();
     acl.setPublicReadAccess(false);
