@@ -267,7 +267,10 @@ Parse.Cloud.afterSave('Slove', function(request) {
     var sloved = request.object.get('sloved');
     // Update slover counter
     slover.fetch().then(function(sloverObject) {
+      // Should be renamed to sloveNumber
       sloverObject.increment('sloveCounter', -1);
+      // Should be renamed to sloveCounter
+      sloverObject.increment('tmpSloveCounter');
       sloverObject.save();
     });
 
@@ -325,6 +328,33 @@ Parse.Cloud.job('dailySloveDistribution', function(request, status) {
 });
 
 /**
+ * Background job used to count sloves for each user and update their sloveCounter
+ */
+Parse.Cloud.job('initSloveCounters', function(request, status) {
+  Parse.Cloud.useMasterKey();
+  var query = new Parse.Query(Parse.User);
+  query.each(function(user) {
+    var sloveQuery = new Parse.Query('Slove');
+    sloveQuery.equalTo('slover', user);
+    return sloveQuery.count().then(function(count) {
+      user.set('tmpSloveCounter', count);
+      return user.save();
+    });
+  })
+  .then(
+    function() {
+      // Set the job's success status
+      status.success('Job finished successfully');
+    },
+    function(error) {
+      // Set the job's error status
+      console.error(error);
+      status.error('Job encountered an error');
+    }
+  );
+});
+
+/**
  * User
  */
 Parse.Cloud.beforeSave(Parse.User, function(request, response) {
@@ -333,6 +363,7 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
     // Set arbitrary default number. Could be set differently...
     request.object.set('sloveCounter', 5);
     request.object.set('sloveCredit', 5);
+    request.object.set('tmpSloveCounter', 0);
   }
   response.success();
 });
