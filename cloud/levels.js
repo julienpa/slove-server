@@ -2,8 +2,8 @@
 (function() {
 'use strict';
 
-// Slove levels ordered from smaller to bigger
-var levels = [2, 5, 8, 15, 30, 50, 70, 100, 150, 200];
+// Slove levels ordered from smallest to biggest
+var levels = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233]; // Fibonacci baby!
 
 // Takes a number of Sloves as parameters and returns the matching level
 function getLevel(sloveNumber) {
