@@ -14,9 +14,6 @@ var logLevels = {
   error: 3,
   alert: 4
 };
-var masterAcl = new Parse.ACL();
-masterAcl.setPublicReadAccess(false);
-masterAcl.setPublicWriteAccess(false);
 
 // Use Parse.Cloud.define to define as many cloud functions as you want.
 Parse.Cloud.define('slove', function(request, response) {
@@ -209,7 +206,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
 
       // Create Slove object that will be passed the data and saved
       var Slove = Parse.Object.extend('Slove');
-      var slove = new Slove({ ACL: masterAcl });
+      var slove = new Slove({ ACL: getACL('master') });
 
       // Create the Slove to be saved
       var sloveData = {
@@ -323,6 +320,7 @@ Parse.Cloud.afterSave('Slove', function(request) {
             if (oldNumber < newNumber) {
               level.increment('sloveNumber');
               level.set('hasLevelUp', levels.isNewLevel(oldNumber, newNumber));
+              level.setACL(getACL([slover, sloved])); // @todo: remove. Temp fix for existing levels
               return level.save();
             }
           }
@@ -331,7 +329,7 @@ Parse.Cloud.afterSave('Slove', function(request) {
       else if (sentSloveTo[sloved.id] === 1) {
         // First Slove for these two users
         var Level = Parse.Object.extend('Level');
-        var level = new Level();
+        var level = new Level({ ACL: getACL([slover, sloved]) });
         // Creating level for them
         promises.push(level.save({ user1: slover, user2: sloved, sloveNumber: 0, hasLevelUp: false }));
       }
@@ -452,7 +450,7 @@ Parse.Cloud.define('addFollow', function(request, response) {
 
       // Create Relation object that will be passed the data and saved
       var Follow = Parse.Object.extend('Follow');
-      var follow = new Follow();
+      var follow = new Follow({ ACL: getACL([currentUser]) });
 
       // Create the Relation to be saved
       var followData = {
@@ -466,8 +464,7 @@ Parse.Cloud.define('addFollow', function(request, response) {
           response.success({ status: 'ok', newFollow: savedFollow.id });
         },
         error: function(follow, error) {
-          // The save failed.
-          // error is a Parse.Error with an error code and message.
+          // The save failed
           console.error({ newFollowError: error });
           response.error('error_follow_couldnt_be_saved');
         }
@@ -527,7 +524,7 @@ Parse.Cloud.define('getActivities', function(request, response) {
   var query = new Parse.Query('Activity');
 
   // Limit number of activities returned, and order them by date
-  query.limit(20);
+  query.limit(30);
   query.descending('createdAt');
 
   // Tells the query to retrieve the relatedUser objects, not just the reference to them
@@ -579,11 +576,8 @@ Parse.Cloud.define('getActivities', function(request, response) {
 
 function addActivity(params) {
   Parse.Cloud.useMasterKey();
-  var acl = new Parse.ACL();
-  acl.setReadAccess(params.user, true);
-  acl.setPublicReadAccess(false);
   var Activity = Parse.Object.extend('Activity');
-  var activity = new Activity({ ACL: acl });
+  var activity = new Activity({ ACL: getACL([params.user]) });
   var activityData = {
     user: params.user,
     activityType: params.type,
@@ -709,12 +703,30 @@ function getLevelQuery(user1, user2) {
 }
 
 /**
+ * ACL helper
+ */
+function getACL(users, publicRead) {
+  var acl = new Parse.ACL();
+  if (_.isString(users) && users === 'master') {
+    acl.setPublicReadAccess(false);
+    acl.setPublicWriteAccess(false);
+  }
+  else if (_.isArray(users)) {
+    _.each(users, function(user) {
+      acl.setReadAccess(user, true);
+    });
+    acl.setPublicReadAccess(publicRead ? publicRead : false);
+  }
+  return acl;
+}
+
+/**
  * Logs
  */
 Parse.Cloud.define('addLog', function(request, response) {
   Parse.Cloud.useMasterKey();
   var Log = Parse.Object.extend('Log');
-  var log = new Log({ ACL: masterAcl });
+  var log = new Log({ ACL: getACL('master') });
   var logData = {
     level: request.params.level,
     type: request.params.type,
