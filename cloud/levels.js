@@ -3,7 +3,7 @@
 'use strict';
 
 // Slove levels ordered from smallest to biggest
-var levels = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233]; // Fibonacci baby!
+var levels = [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105]; // Triangular numbers, baby!
 
 // Takes a number of Sloves as parameters and returns the matching level
 function getLevel(sloveNumber) {
