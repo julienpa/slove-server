@@ -347,9 +347,13 @@ Parse.Cloud.afterSave('Slove', function(request) {
       return addActivity({ user: sloved, type: 'slove', value: 1, relatedUser: slover });
     })
     .then(function() {
-      // Log time at the very end
-      var timeEnd = _.now();
-      return Parse.Cloud.run('addLog', { level: logLevels.info, type: 'as Slove', message: 'Ran in ' + ((timeEnd - timeBegin) / 1000) + ' sec' });
+      // (Sometimes) log execution time at the very end
+      // Do it randomly with an arbitrary number to not create too many lines in database
+      // Note: the random range should be increased proportionally with user growth
+      if (_.random(0, 10) === 3) {
+        var timeEnd = _.now();
+        return Parse.Cloud.run('addLog', { level: logLevels.info, type: 'afterSave Slove', message: 'Ran in ' + ((timeEnd - timeBegin) / 1000) + ' sec' });
+      }
     },
     function(error) {
       // GLOBAL ERROR HANLDER, ONE OF THE PROMISES GOT REJECTED
@@ -676,7 +680,13 @@ Parse.Cloud.define('getLevel', function(request, response) {
           response.success({ status: 'ok', level: 0 });
         }
         else {
-          response.success({ status: 'ok', level: levels.getLevel(level.get('sloveNumber')) });
+          var levelValue = levels.getLevel(level.get('sloveNumber'));
+          if (level.get('hasLevelUp') === true) {
+            // We remove 1 level to the returned value if hasLevelUp is TRUE
+            // This is to ensure that the users won't see the level up in the profile before receiving the push notif
+            levelValue--;
+          }
+          response.success({ status: 'ok', level: levelValue });
         }
       },
       error: function(error) {
