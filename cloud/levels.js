@@ -9,7 +9,7 @@ var levels = [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105]; // Triangul
 function getLevel(sloveNumber) {
   var levelNumber = 0;
   if (sloveNumber >= levels[0]) {
-    while(levels.indexOf(sloveNumber) === -1) {
+    while (levels.indexOf(sloveNumber) === -1) {
       sloveNumber--;
     }
     levelNumber = levels.indexOf(sloveNumber) + 1;

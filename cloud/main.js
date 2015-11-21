@@ -6,6 +6,7 @@
 // Load module dependencies
 var _ = require('cloud/lodash.js');
 var levels = require('cloud/levels.js');
+var acl = require('cloud/acl.js');
 
 // Constants
 var logLevels = {
@@ -84,8 +85,9 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
 
   if (verificationCode === request.params.phoneVerificationCode) {
     user.set('phoneNumber', request.params.phoneNumber);
-    user.save();
-    response.success({ status: 'ok' });
+    user.save().then(function() {
+      response.success({ status: 'ok' });
+    });
   }
   else {
     response.error('error_codes_dont_match');
@@ -108,6 +110,22 @@ Parse.Cloud.define('getRegisteredContacts', function(request, response) {
     return;
   }
 
+  // UserData refresh/create
+  var user = Parse.User.current();
+  var queryUd = new Parse.Query('UserData');
+  queryUd.equalTo('user', user);
+  queryUd.first().then(function(userdata) {
+    if (userdata) {
+      userdata.set('phoneContacts', phoneNumbers);
+      userdata.save();
+    }
+    else {
+      var UserData = Parse.Object.extend('UserData');
+      var userData = new UserData({ ACL: acl.getACL([user], true) });
+      userData.save({ user: user, phoneContacts: phoneNumbers });
+    }
+  });
+
   // Run the query with supplied param and send back formated results,
   // or send an error message if no match was found
   var registeredContacts = [];
@@ -118,6 +136,9 @@ Parse.Cloud.define('getRegisteredContacts', function(request, response) {
   };
   var currentUser;
   var query = new Parse.Query(Parse.User);
+  // Only ask to return needed properties (defined by userObject)
+  query.select(_.keys(userObject));
+  // Match on the phone number with the supplied list
   query.containedIn('phoneNumber', phoneNumbers);
   query.each(function(user) {
     currentUser = Object.create(userObject);
@@ -146,10 +167,26 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
     return;
   }
   // Check if param is in the expected format
-  if (!Array.isArray(facebookIds)) {
+  if (!_.isArray(facebookIds)) {
     response.error('error_param_is_not_an_array');
     return;
   }
+
+  // UserData refresh/create
+  var user = Parse.User.current();
+  var queryUd = new Parse.Query('UserData');
+  queryUd.equalTo('user', user);
+  queryUd.first().then(function(userdata) {
+    if (userdata) {
+      userdata.set('facebookContacts', facebookIds);
+      userdata.save();
+    }
+    else {
+      var UserData = Parse.Object.extend('UserData');
+      var userData = new UserData({ ACL: acl.getACL([user], true) });
+      userData.save({ user: user, facebookContacts: facebookIds });
+    }
+  });
 
   // Run the query with supplied param and send back formated results,
   // or send an error message if no match was found
@@ -161,6 +198,8 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
   };
   var currentUser;
   var query = new Parse.Query(Parse.User);
+  // Only ask to return needed properties (defined by userObject)
+  query.select(_.keys(userObject));
   query.containedIn('facebookId', facebookIds);
   query.exists('phoneNumber'); // check if phoneNumber is set
   query.each(function(user) {
@@ -179,6 +218,86 @@ Parse.Cloud.define('getRegisteredFriends', function(request, response) {
     else {
       response.error('error_no_user_found');
     }
+  });
+});
+
+/**
+ * New get function for all the contacts!!
+ */
+Parse.Cloud.define('getSlovers', function(request, response) {
+  var contacts = require('cloud/contacts.js');
+
+  var currentUser = Parse.User.current();
+
+  // Will be used as a promise
+  var refresh = new Parse.Promise();
+
+  // Refresh contact lists if asked
+  if (request.params.phone || request.params.facebook) {
+    refresh = contacts.refreshContacts(currentUser, request.params);
+  }
+  else {
+    refresh.resolve(1); // Reslove immediately
+  }
+
+  // Whether there was a refresh or not, query user's contacts and return it
+  var queryData = {};
+  refresh.then(function() {
+    var queryUd = new Parse.Query('UserData');
+    queryUd.select('sloveContacts');
+    queryUd.equalTo('user', currentUser);
+    return queryUd.first().then(function(userData) {
+      queryData.sloveContacts = userData.get('sloveContacts');
+    });
+  })
+  .then(function() {
+    queryData.follows = [];
+    var query = new Parse.Query('Follow');
+    query.include('to');
+    query.equalTo('from', currentUser);
+    return query.each(function(follow) {
+      var to = follow.get('to');
+      if (to) {
+        queryData.follows.push(to.id);
+      }
+    });
+  })
+  .then(function() {
+    // Slover object model
+    var sloverModel = {
+      objectId: '', username: '', phoneNumber: '', facebookId: '',
+      firstName: '', lastName: '', pictureUrl: '', sentSlove: 0
+    };
+
+    var contactIds = _.union(queryData.sloveContacts, queryData.follows);
+
+    var query = new Parse.Query(Parse.User);
+    query.select(_.keys(sloverModel));
+    query.containedIn('objectId', contactIds);
+    query.find().then(
+      function(results) {
+        var slovers = [];
+        var slover;
+        var sentSloveTo;
+        _.each(results, function(user) {
+          sentSloveTo = currentUser.get('sentSloveTo');
+          slover = Object.create(sloverModel);
+          slover.objectId = user.id;
+          slover.username = user.get('username');
+          slover.phoneNumber = user.get('phoneNumber');
+          if (user.get('facebookId')) { slover.facebookId = user.get('facebookId'); }
+          if (user.get('firstName')) { slover.firstName = user.get('firstName'); }
+          if (user.get('lastName')) { slover.lastName = user.get('lastName'); }
+          if (user.get('pictureUrl')) { slover.pictureUrl = user.get('pictureUrl'); }
+          if (sentSloveTo[user.id]) { slover.sentSlove = sentSloveTo[user.id]; }
+          slovers.push(slover);
+        });
+        response.success({ slovers: slovers });
+      },
+      function() {
+        response.error();
+      }
+    );
   });
 });
 
@@ -206,7 +325,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
 
       // Create Slove object that will be passed the data and saved
       var Slove = Parse.Object.extend('Slove');
-      var slove = new Slove({ ACL: getACL('master') });
+      var slove = new Slove({ ACL: acl.getACL('master') });
 
       // Create the Slove to be saved
       var sloveData = {
@@ -320,7 +439,7 @@ Parse.Cloud.afterSave('Slove', function(request) {
             if (oldNumber < newNumber) {
               level.increment('sloveNumber');
               level.set('hasLevelUp', levels.isNewLevel(oldNumber, newNumber));
-              level.setACL(getACL([slover, sloved])); // @todo: remove. Temp fix for existing levels
+              level.setACL(acl.getACL([slover, sloved])); // @todo: remove. Temp fix for existing levels
               return level.save();
             }
           }
@@ -329,7 +448,7 @@ Parse.Cloud.afterSave('Slove', function(request) {
       else if (sentSloveTo[sloved.id] === 1) {
         // First Slove for these two users
         var Level = Parse.Object.extend('Level');
-        var level = new Level({ ACL: getACL([slover, sloved]) });
+        var level = new Level({ ACL: acl.getACL([slover, sloved]) });
         // Creating level for them
         promises.push(level.save({ user1: slover, user2: sloved, sloveNumber: 0, hasLevelUp: false }));
       }
@@ -372,17 +491,47 @@ Parse.Cloud.job('deliverDailySloves', function(request, status) {
   var counter = 0;
   // Query for all users (@todo: add timezone management later)
   var query = new Parse.Query(Parse.User);
-  query.each(function(user) {
-    counter++;
-    // Reinit sloveNumber(-Counter, to rename?) based on sloveCredit value
-    user.set('sloveNumber', user.get('sloveCredit'));
-    return user.save();
+  //-> to enable with smart value when needed: query.lessThan('sloveNumber', 5);
+  query.limit(300); // Should go up when user arrive, but max is 1000
+  query.find().then(function(users) {
+    var promises = [];
+    _.each(users, function(user) {
+      // Save old slove number to send push only if it has changed
+      var oldNumber = user.get('sloveNumber');
+      var sloveCredit = user.get('sloveCredit');
+      if (oldNumber < sloveCredit) {
+        // Reinit sloveNumber based on sloveCredit value
+        user.set('sloveNumber', sloveCredit);
+        promises.push(
+          user.save().then(function() {
+            // Send push
+            var pushData = {
+              channels: [user.get('username')],
+              data: {
+                alert: 'Your ' + sloveCredit + ' daily Sloves have been delivered! ♡'
+              }
+            };
+            var pushOptions = {
+              success: function() {
+                // Push was sent successfully
+                counter++;
+              },
+              error: function(error) {
+                Parse.Cloud.run('addLog', { level: logLevels.error, type: 'job deliverDailySloves push', code: error.code, message: error.message });
+              }
+            };
+            return Parse.Push.send(pushData, pushOptions);
+          })
+        );
+      }
+    });
+    return Parse.Promise.when(promises);
   })
   .then(
     function() {
       // Set the job's success status
-      status.message(counter + ' users processed');
-      status.success('Job finished successfully');
+      status.message(counter + ' push sent');
+      status.success('Job finished successfully, sent ' + counter + ' pushs');
     },
     function(error) {
       // Set the job's error status
@@ -454,7 +603,7 @@ Parse.Cloud.define('addFollow', function(request, response) {
 
       // Create Relation object that will be passed the data and saved
       var Follow = Parse.Object.extend('Follow');
-      var follow = new Follow({ ACL: getACL([currentUser]) });
+      var follow = new Follow({ ACL: acl.getACL([currentUser]) });
 
       // Create the Relation to be saved
       var followData = {
@@ -581,7 +730,7 @@ Parse.Cloud.define('getActivities', function(request, response) {
 function addActivity(params) {
   Parse.Cloud.useMasterKey();
   var Activity = Parse.Object.extend('Activity');
-  var activity = new Activity({ ACL: getACL([params.user]) });
+  var activity = new Activity({ ACL: acl.getACL([params.user]) });
   var activityData = {
     user: params.user,
     activityType: params.type,
@@ -622,12 +771,18 @@ Parse.Cloud.job('processLevels', function(request, status) {
       promises.push(addActivity({ user: level.get('user2'), type: 'level', value: levelNumber, relatedUser: level.get('user1') }));
 
       // Send push
+      var username1 = level.get('user1').get('username');
+      var username2 = level.get('user2').get('username');
       var pushData = {
-        channels: [level.get('user1').get('username'), level.get('user2').get('username')],
+        channels: [username1, username2],
         data: {
           alert: '♡ Level up! ♡',
           badge: 'Increment',
-          sound: 'Assets/Sound/Congratsbuild2.wav'
+          sound: 'Assets/Sound/Congratsbuild2.wav',
+          levelUp: {
+            user1: username1,
+            user2: username2
+          }
         }
       };
       var pushOptions = {
@@ -713,30 +868,12 @@ function getLevelQuery(user1, user2) {
 }
 
 /**
- * ACL helper
- */
-function getACL(users, publicRead) {
-  var acl = new Parse.ACL();
-  if (_.isString(users) && users === 'master') {
-    acl.setPublicReadAccess(false);
-    acl.setPublicWriteAccess(false);
-  }
-  else if (_.isArray(users)) {
-    _.each(users, function(user) {
-      acl.setReadAccess(user, true);
-    });
-    acl.setPublicReadAccess(publicRead ? publicRead : false);
-  }
-  return acl;
-}
-
-/**
  * Logs
  */
 Parse.Cloud.define('addLog', function(request, response) {
   Parse.Cloud.useMasterKey();
   var Log = Parse.Object.extend('Log');
-  var log = new Log({ ACL: getACL('master') });
+  var log = new Log({ ACL: acl.getACL('master') });
   var logData = {
     level: request.params.level,
     type: request.params.type,
