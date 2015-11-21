@@ -497,43 +497,6 @@ Parse.Cloud.define('addFollow', function(request, response) {
   });
 });
 
-Parse.Cloud.define('getFollows', function(request, response) {
-  var query = new Parse.Query('Follow');
-
-  // Tells the query to retrieve the user objects, not just the reference to them
-  query.include('to');
-
-  // Add query condition to get only current user's follows
-  query.equalTo('from', Parse.User.current());
-
-  // Prepare data
-  var follows = [];
-  var userObject = {
-    username: '',
-    pictureUrl: ''
-  };
-  var currentUser;
-  var followedUser;
-
-  // Execute query and loop through results
-  query.each(function(follow) {
-    followedUser = follow.get('to');
-    currentUser = Object.create(userObject);
-    currentUser.username = followedUser.get('username') ? followedUser.get('username') : '';
-    currentUser.pictureUrl = followedUser.get('pictureUrl') ? followedUser.get('pictureUrl') : '';
-    // Save it to the list that we will return
-    follows.push(currentUser);
-  })
-  .then(
-    function() {
-      response.success({ status: 'ok', follows: follows });
-    },
-    function() {
-      response.error('error_request_failed');
-    }
-  );
-});
-
 /**
  * Activity
  */
