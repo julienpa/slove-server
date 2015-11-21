@@ -16,11 +16,6 @@ var logLevels = {
   alert: 4
 };
 
-// Use Parse.Cloud.define to define as many cloud functions as you want.
-Parse.Cloud.define('slove', function(request, response) {
-  response.success('You\'ve been sloved!');
-});
-
 /**
  * Phone number confirmation
  */
@@ -95,134 +90,7 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
 });
 
 /**
- * Contacts and Facebook friends
- */
-Parse.Cloud.define('getRegisteredContacts', function(request, response) {
-  var phoneNumbers = request.params.phoneNumbers;
-  // Check if param was sent correctly
-  if (phoneNumbers === undefined) {
-    response.error('error_missing_param');
-    return;
-  }
-  // Check if param is in the expected format
-  if (!Array.isArray(phoneNumbers)) {
-    response.error('error_param_is_not_an_array');
-    return;
-  }
-
-  // UserData refresh/create
-  var user = Parse.User.current();
-  var queryUd = new Parse.Query('UserData');
-  queryUd.equalTo('user', user);
-  queryUd.first().then(function(userdata) {
-    if (userdata) {
-      userdata.set('phoneContacts', phoneNumbers);
-      userdata.save();
-    }
-    else {
-      var UserData = Parse.Object.extend('UserData');
-      var userData = new UserData({ ACL: acl.getACL([user], true) });
-      userData.save({ user: user, phoneContacts: phoneNumbers });
-    }
-  });
-
-  // Run the query with supplied param and send back formated results,
-  // or send an error message if no match was found
-  var registeredContacts = [];
-  var userObject = {
-    username: '',
-    phoneNumber: '',
-    pictureUrl: ''
-  };
-  var currentUser;
-  var query = new Parse.Query(Parse.User);
-  // Only ask to return needed properties (defined by userObject)
-  query.select(_.keys(userObject));
-  // Match on the phone number with the supplied list
-  query.containedIn('phoneNumber', phoneNumbers);
-  query.each(function(user) {
-    currentUser = Object.create(userObject);
-    currentUser.username = user.get('username') ? user.get('username') : '';
-    currentUser.pictureUrl = user.get('pictureUrl') ? user.get('pictureUrl') : '';
-    // We know this one is present because it matched
-    currentUser.phoneNumber = user.get('phoneNumber');
-    // Save it to the list that we will return
-    registeredContacts.push(currentUser);
-  })
-  .then(function() {
-    if (registeredContacts.length > 0) {
-      response.success({ status: 'ok', registeredContacts: registeredContacts });
-    }
-    else {
-      response.error('error_no_user_found');
-    }
-  });
-});
-
-Parse.Cloud.define('getRegisteredFriends', function(request, response) {
-  var facebookIds = request.params.facebookIds;
-  // Check if param was sent correctly
-  if (facebookIds === undefined) {
-    response.error('error_missing_param');
-    return;
-  }
-  // Check if param is in the expected format
-  if (!_.isArray(facebookIds)) {
-    response.error('error_param_is_not_an_array');
-    return;
-  }
-
-  // UserData refresh/create
-  var user = Parse.User.current();
-  var queryUd = new Parse.Query('UserData');
-  queryUd.equalTo('user', user);
-  queryUd.first().then(function(userdata) {
-    if (userdata) {
-      userdata.set('facebookContacts', facebookIds);
-      userdata.save();
-    }
-    else {
-      var UserData = Parse.Object.extend('UserData');
-      var userData = new UserData({ ACL: acl.getACL([user], true) });
-      userData.save({ user: user, facebookContacts: facebookIds });
-    }
-  });
-
-  // Run the query with supplied param and send back formated results,
-  // or send an error message if no match was found
-  var registeredFriends = [];
-  var userObject = {
-    username: '',
-    facebookId: '',
-    pictureUrl: ''
-  };
-  var currentUser;
-  var query = new Parse.Query(Parse.User);
-  // Only ask to return needed properties (defined by userObject)
-  query.select(_.keys(userObject));
-  query.containedIn('facebookId', facebookIds);
-  query.exists('phoneNumber'); // check if phoneNumber is set
-  query.each(function(user) {
-    currentUser = Object.create(userObject);
-    currentUser.username = user.get('username') ? user.get('username') : '';
-    currentUser.pictureUrl = user.get('pictureUrl') ? user.get('pictureUrl') : '';
-    // We know this one is present because it matched
-    currentUser.facebookId = user.get('facebookId');
-    // Save it to the list that we will return
-    registeredFriends.push(currentUser);
-  })
-  .then(function() {
-    if (registeredFriends.length > 0) {
-      response.success({ status: 'ok', registeredFriends: registeredFriends });
-    }
-    else {
-      response.error('error_no_user_found');
-    }
-  });
-});
-
-/**
- * New get function for all the contacts!!
+ * Get all slove contacts for the current logged user
  */
 Parse.Cloud.define('getSlovers', function(request, response) {
   var contacts = require('cloud/contacts.js');
