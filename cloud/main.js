@@ -163,7 +163,7 @@ Parse.Cloud.define('getSlovers', function(request, response) {
         response.success({ slovers: slovers });
       },
       function() {
-        response.error('request_failed');
+        response.error('error_request_failed');
       }
     );
   });
@@ -193,7 +193,7 @@ Parse.Cloud.define('sendSlove', function(request, response) {
         if (dateNextDelivery.hours() >= 7) {
           dateNextDelivery.add(1, 'd'); // if we are after today's job exec, add 1 day to compute correctly
         }
-        dateNextDelivery.set({'hour': 7, 'minute': 0, 'second': 0, 'millisecond': 0});
+        dateNextDelivery.set({ 'hour': 7, 'minute': 0, 'second': 0, 'millisecond': 0 });
         var secondsRemaining = dateNextDelivery.diff(moment().utc(), 'seconds');
 
         // return the error with time until slove delivery
@@ -451,6 +451,8 @@ Parse.Cloud.job('initSloveCounters', function(request, status) {
  * User
  */
 Parse.Cloud.beforeSave(Parse.User, function(request, response) {
+  // var timeBegin = _.now();
+
   // Check if the object was just created
   if (request.object.isNew()) {
     // Set Slove default numbers
@@ -459,6 +461,11 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
     request.object.set('sloveCounter', 0);
     request.object.set('sentSloveTo', {});
   }
+  /**
+   * -> else if (phoneNumber has changed) { add to matching userdata phone books and facebook friendslist }
+   * CODE FOR NEW CONTACT + PUSH NEW FRIEND HERE
+   * Promise? External node module?
+   */
   response.success();
 });
 
@@ -473,32 +480,47 @@ Parse.Cloud.define('addFollow', function(request, response) {
   var query = new Parse.Query(Parse.User);
   query.equalTo('username', newFollowUsername);
   query.first({
-    success: function(newFollow) {
-      if (!newFollow) {
+    success: function(newFollowedUser) {
+      if (!newFollowedUser) {
         response.error('error_username_doesnt_exist');
         return;
       }
 
-      // Create Relation object that will be passed the data and saved
-      var Follow = Parse.Object.extend('Follow');
-      var follow = new Follow({ ACL: acl.getACL([currentUser]) });
+      // Check if that follow doesn't already exist, and add it only if it doesn't
+      var innerQuery = new Parse.Query('Follow');
+      innerQuery.equalTo('from', currentUser);
+      innerQuery.equalTo('to', newFollowedUser);
+      innerQuery.first().then(function(existingFollow) {
+        if (!existingFollow) {
+          // Create Relation object that will be passed the data and saved
+          var Follow = Parse.Object.extend('Follow');
+          var follow = new Follow({ ACL: acl.getACL([currentUser]) });
 
-      // Create the Relation to be saved
-      var followData = {
-        from: currentUser,
-        to: newFollow
-      };
+          // Create the Relation to be saved
+          var followData = {
+            from: currentUser,
+            to: newFollowedUser
+          };
 
-      // Saving Relation in database
-      follow.save(followData, {
-        success: function(savedFollow) {
-          response.success({ status: 'ok', newFollow: savedFollow.id });
-        },
-        error: function(follow, error) {
-          // The save failed
-          console.error({ newFollowError: error });
-          response.error('error_follow_couldnt_be_saved');
+          // Saving Relation in database
+          follow.save(followData, {
+            success: function(savedFollow) {
+              response.success({ status: 'ok', newFollow: savedFollow.id });
+            },
+            error: function(follow, error) {
+              // The save failed
+              console.error({ newFollowError: error });
+              response.error('error_follow_couldnt_be_saved');
+            }
+          });
         }
+        else {
+          response.success({ status: 'ok', newFollow: newFollowedUser.id, details: 'already following' });
+        }
+      },
+      function() {
+        // Existing follow request failed
+        response.error('error_request_failed');
       });
     },
     error: function() {
