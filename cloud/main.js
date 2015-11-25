@@ -149,7 +149,7 @@ Parse.Cloud.define('getSlovers', function(request, response) {
         var sentSloveTo;
         _.each(results, function(user) {
           sentSloveTo = currentUser.get('sentSloveTo');
-          slover = Object.create(sloverModel);
+          slover = _.clone(sloverModel);
           slover.objectId = user.id;
           slover.username = user.get('username');
           slover.phoneNumber = user.get('phoneNumber');
@@ -163,7 +163,7 @@ Parse.Cloud.define('getSlovers', function(request, response) {
         response.success({ slovers: slovers });
       },
       function() {
-        response.error();
+        response.error('request_failed');
       }
     );
   });
@@ -187,7 +187,17 @@ Parse.Cloud.define('sendSlove', function(request, response) {
       }
 
       if (slover.get('sloveNumber') < 1) {
-        response.error('error_not_enough_slove');
+        // date computation
+        var moment = require('cloud/moment.js');
+        var dateNextDelivery = moment().utc();
+        if (dateNextDelivery.hours() >= 7) {
+          dateNextDelivery.add(1, 'd'); // if we are after today's job exec, add 1 day to compute correctly
+        }
+        dateNextDelivery.set({'hour': 7, 'minute': 0, 'second': 0, 'millisecond': 0});
+        var secondsRemaining = dateNextDelivery.diff(moment().utc(), 'seconds');
+
+        // return the error with time until slove delivery
+        response.error({ message: 'error_not_enough_slove', secondsRemaining: secondsRemaining });
         return;
       }
 
@@ -537,7 +547,7 @@ Parse.Cloud.define('getActivities', function(request, response) {
         relatedUser = activity.get('relatedUser') ? activity.get('relatedUser') : null;
 
         // Create and populate a sample activity object
-        currentActivity = Object.create(activityObject);
+        currentActivity = _.clone(activityObject);
         currentActivity.activityType = activity.get('activityType') ? activity.get('activityType') : '';
         currentActivity.activityValue = activity.get('activityValue') ? activity.get('activityValue') : 0;
         currentActivity.relatedUser = relatedUser ? relatedUser.get('username') : '';
@@ -607,7 +617,7 @@ Parse.Cloud.job('processLevels', function(request, status) {
       var pushData = {
         channels: [username1, username2],
         data: {
-          alert: '♡ Level up! ♡',
+          alert: 'Level up!',
           badge: 'Increment',
           sound: 'Assets/Sound/Congratsbuild2.wav',
           levelUp: {
