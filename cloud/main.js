@@ -5,8 +5,9 @@
 
 // Load module dependencies
 var _ = require('cloud/lodash.js');
-var levels = require('cloud/levels.js');
 var acl = require('cloud/acl.js');
+var levels = require('cloud/levels.js');
+var activities = require('cloud/activities.js');
 
 // Constants
 var logLevels = {
@@ -79,14 +80,51 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
   var verificationCode = user.get('phoneVerificationCode');
 
   if (verificationCode === request.params.phoneVerificationCode) {
-    user.set('phoneNumber', request.params.phoneNumber);
-    user.save().then(function() {
+    var contacts = require('cloud/contacts.js');
+    var webhooks = require('cloud/webhooks.js');
+    var phoneNumber = request.params.phoneNumber;
+    user.set('phoneNumber', phoneNumber);
+    user.save()
+    .then(function(updatedUser) {
+      // Add to slove contacts for people with the new user in their phone/facebook contacts
+      return contacts.declareNewUser(updatedUser)
+      .then(function() {
+        return Parse.Promise.as(updatedUser);
+      })
+      .fail(function() {
+        return Parse.Promise.as(updatedUser);
+      });
+    })
+    .then(function(updatedUser) {
+      return webhooks.pushToSlack(updatedUser);
+    })
+    .then(function() {
       response.success({ status: 'ok' });
+    },
+    function(error) {
+      // Global error handler
+      Parse.Cloud.run('addLog', { level: logLevels.error, type: 'func confirmPhoneCode', code: error.code, message: error.message });
+      response.error('error_request_failed');
     });
   }
   else {
     response.error('error_codes_dont_match');
   }
+});
+
+/**
+ * User
+ */
+Parse.Cloud.beforeSave(Parse.User, function(request, response) {
+  // Check if the object was just created
+  if (request.object.isNew()) {
+    // Set Slove default numbers
+    request.object.set('sloveNumber', 1);
+    request.object.set('sloveCredit', 1);
+    request.object.set('sloveCounter', 0);
+    request.object.set('sentSloveTo', {});
+  }
+  response.success();
 });
 
 /**
@@ -268,8 +306,10 @@ Parse.Cloud.define('sendSlove', function(request, response) {
  * 3) Create activity line for the sloved
  */
 Parse.Cloud.afterSave('Slove', function(request) {
-  // Check if the object was just created
-  if (request.object.existed() === false) {
+  var createdAt = request.object.get('createdAt').getTime();
+  var updatedAt = request.object.get('updatedAt').getTime();
+  // Check if the object was just created (should be `!request.object.existed()` but this isn't working anymore)
+  if (createdAt === updatedAt) {
     var timeBegin = _.now();
 
     Parse.Cloud.useMasterKey();
@@ -341,7 +381,7 @@ Parse.Cloud.afterSave('Slove', function(request) {
     .then(function() {
       // 3)
       // Add activity
-      return addActivity({ user: sloved, type: 'slove', value: 1, relatedUser: slover });
+      return activities.addActivity({ user: sloved, type: 'slove', value: 1, relatedUser: slover });
     })
     .then(function() {
       // (Sometimes) log execution time at the very end
@@ -370,23 +410,48 @@ Parse.Cloud.job('deliverDailySloves', function(request, status) {
   // Query for all users (@todo: add timezone management later)
   var query = new Parse.Query(Parse.User);
   //-> to enable with smart value when needed: query.lessThan('sloveNumber', 5);
-  query.limit(300); // Should go up when user arrive, but max is 1000
+  query.limit(500); // Should go up when user arrive, but max is 1000
   query.find().then(function(users) {
     var promises = [];
     _.each(users, function(user) {
       // Save old slove number to send push only if it has changed
-      var oldNumber = user.get('sloveNumber');
-      var sloveCredit = user.get('sloveCredit');
-      if (oldNumber < sloveCredit) {
-        // Reinit sloveNumber based on sloveCredit value
-        user.set('sloveNumber', sloveCredit);
+      var currentNumber = user.get('sloveNumber');
+      var credit = user.get('sloveCredit');
+      // Update flags to trigger necessary actions
+      var numberUpdated = false; // won't be set to true for 1-1
+      var creditIncrease = false; // will be set to true only for credit increase
+
+      // Slove mechanic!
+      if (currentNumber <= 0 && credit < 5) {
+        credit++;
+        numberUpdated = true;
+        creditIncrease = true;
+      }
+      else if (currentNumber === credit && credit > 1) {
+        credit--;
+        numberUpdated = true;
+      }
+      else if (currentNumber < credit) {
+        numberUpdated = true;
+      }
+
+      // Update number and credit fields, but don't save
+      user.set('sloveNumber', credit);
+      user.set('sloveCredit', credit);
+
+      // Simple save for most slive updates
+      if (!creditIncrease && numberUpdated) {
+        promises.push(user.save());
+      }
+      // Save + push notification
+      else if (creditIncrease) {
         promises.push(
           user.save().then(function() {
             // Send push
             var pushData = {
               channels: [user.get('username')],
               data: {
-                alert: 'Your ' + sloveCredit + ' daily Sloves have been delivered! ♡'
+                alert: 'You have ' + credit + ' Sloves to send today, don\'t forget to share your love! ♡'
               }
             };
             var pushOptions = {
@@ -445,28 +510,6 @@ Parse.Cloud.job('initSloveCounters', function(request, status) {
       status.error('Job encountered an error (' + error.code + ')');
     }
   );
-});
-
-/**
- * User
- */
-Parse.Cloud.beforeSave(Parse.User, function(request, response) {
-  // var timeBegin = _.now();
-
-  // Check if the object was just created
-  if (request.object.isNew()) {
-    // Set Slove default numbers
-    request.object.set('sloveNumber', 5);
-    request.object.set('sloveCredit', 5);
-    request.object.set('sloveCounter', 0);
-    request.object.set('sentSloveTo', {});
-  }
-  /**
-   * -> else if (phoneNumber has changed) { add to matching userdata phone books and facebook friendslist }
-   * CODE FOR NEW CONTACT + PUSH NEW FRIEND HERE
-   * Promise? External node module?
-   */
-  response.success();
 });
 
 /**
@@ -590,21 +633,6 @@ Parse.Cloud.define('getActivities', function(request, response) {
   });
 });
 
-function addActivity(params) {
-  Parse.Cloud.useMasterKey();
-  var Activity = Parse.Object.extend('Activity');
-  var activity = new Activity({ ACL: acl.getACL([params.user]) });
-  var activityData = {
-    user: params.user,
-    activityType: params.type,
-    activityValue: params.value
-  };
-  if (params.relatedUser) {
-    activityData.relatedUser = params.relatedUser;
-  }
-  return activity.save(activityData);
-}
-
 /**
  * Levels
  */
@@ -630,8 +658,8 @@ Parse.Cloud.job('processLevels', function(request, status) {
       var levelNumber = levels.getLevel(level.get('sloveNumber'));
 
       // Create activity for both users
-      promises.push(addActivity({ user: level.get('user1'), type: 'level', value: levelNumber, relatedUser: level.get('user2') }));
-      promises.push(addActivity({ user: level.get('user2'), type: 'level', value: levelNumber, relatedUser: level.get('user1') }));
+      promises.push(activities.addActivity({ user: level.get('user1'), type: 'level', value: levelNumber, relatedUser: level.get('user2') }));
+      promises.push(activities.addActivity({ user: level.get('user2'), type: 'level', value: levelNumber, relatedUser: level.get('user1') }));
 
       // Send push
       var username1 = level.get('user1').get('username');
