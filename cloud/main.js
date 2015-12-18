@@ -87,13 +87,7 @@ Parse.Cloud.define('confirmPhoneCode', function(request, response) {
     user.save()
     .then(function(updatedUser) {
       // Add to slove contacts for people with the new user in their phone/facebook contacts
-      return contacts.declareNewUser(updatedUser)
-      .then(function() {
-        return Parse.Promise.as(updatedUser);
-      })
-      .fail(function() {
-        return Parse.Promise.as(updatedUser);
-      });
+      return contacts.declareNewPhone(updatedUser);
     })
     .then(function(updatedUser) {
       return webhooks.pushToSlack(updatedUser);

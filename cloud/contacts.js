@@ -8,6 +8,7 @@ var _ = require('cloud/lodash.js');
 var acl = require('cloud/acl.js');
 var activities = require('cloud/activities.js');
 
+// DO NOT CHANGE THESE VALUES, ALL SCRIPTS BELOW DEPENDS ON THEM
 var externalType = {
   phone: 1,
   facebook: 2,
@@ -66,17 +67,21 @@ function refreshContacts(user, params) {
       if (params.phone && _.isArray(params.phone.contacts) && _.isString(params.phone.hash)) {
         udObject.phoneContacts = params.phone.contacts;
         newHashes.phone = params.phone.hash;
-        promises.push(updateRelations('phone', userData, [], params.phone.contacts));
       }
       if (params.facebook && _.isArray(params.facebook.contacts) && _.isString(params.facebook.hash)) {
         udObject.facebookContacts = params.facebook.contacts;
         newHashes.facebook = params.facebook.hash;
-        promises.push(updateRelations('facebook', userData, [], params.facebook.contacts));
       }
       udObject.contactsHash = newHashes;
 
-      return Parse.Promise.when(promises).then(function() {
-        return newUserData.save(udObject);
+      return newUserData.save(udObject).then(function(newUserData) {
+        if (newHashes.phone) {
+          promises.push(updateRelations('phone', newUserData, [], params.phone.contacts));
+        }
+        if (newHashes.facebook) {
+          promises.push(updateRelations('facebook', newUserData, [], params.facebook.contacts));
+        }
+        return Parse.Promise.when(promises);
       });
     }
   })
@@ -190,46 +195,56 @@ function updateRelations(contactType, userData, previousList, newList) {
 /**
  * Contacts auto refresh on new user + push new friend
  */
-function declareNewUser(newUser) {
-  var phoneNumber = newUser.get('phoneNumber');
+function declareNewPhone(userToDeclare) {
+  var phone = userToDeclare.get('phoneNumber');
 
-  // query phone
-  var queryPhone = new Parse.Query('UserData');
-  queryPhone.equalTo('phoneContacts', phoneNumber); // phoneContacts is an Array, but equalTo will act like a 'containedIn'
+  // Prepare relational query to match external contacts
+  var extContactsQuery = new Parse.Query('ExternalContact');
+  extContactsQuery.equalTo('type', externalType.phone);
+  extContactsQuery.equalTo('data', phone);
+  var query = new Parse.Query('UserData');
+  query.matchesQuery('externalContacts', extContactsQuery);
 
-  /*
-  // query facebook if applicable
-  if (facebookId) {
-    var queryFacebook = new Parse.Query('UserData');
-    queryFacebook.equalTo('facebookContacts', facebookId);
-    // prepare query for both phone and facebook matches
-    matchingUserData = Parse.Query.or(queryPhone, queryFacebook);
-  }
-  else {
-    matchingUserData = queryPhone;
-  }
-  */
+  // Always resolve the user! © Advanced non-blocking system :p
+  return notifyMatches(query, userToDeclare);
+}
 
+function declareNewFacebook(userToDeclare, fbFriendsList) {
+  var matchedUsers = [];
+  var query = new Parse.Query(Parse.User);
+  query.containedIn('facebookId', fbFriendsList);
+  return query.each(function(user) {
+    matchedUsers.push(user);
+  })
+  .then(function() {
+    var query2 = new Parse.Query('UserData');
+    query2.containedIn('user', matchedUsers);
+    return notifyMatches(query2, userToDeclare);
+  });
+}
+
+function notifyMatches(userDataQquery, userToDeclare) {
   // Tells the query to retrieve the user object, not just the reference to it
-  queryPhone.include('user');
-
-  // run query and do business
+  userDataQquery.include('user');
   var usersToNotify = [];
-  return queryPhone.each(function(userData) {
+  var promise = userDataQquery.each(function(userData) {
     var user = userData.get('user');
-    usersToNotify.push(user.get('username'));
-    // add to matched user's contacts
-    userData.addUnique('sloveContacts', newUser.id);
-    return userData.save().then(function() {
-      return activities.addActivity({ user: user, type: 'newContact', value: 1, relatedUser: newUser });
-    });
+    // Avoid adding people with themselves in their contacts to their... contacts.
+    if (user.get('phoneNumber') !== userToDeclare.get('phoneNumber')) {
+      usersToNotify.push(user.get('username'));
+      // Add to matched user's contacts
+      userData.addUnique('sloveContacts', userToDeclare.id);
+      return userData.save().then(function() {
+        return activities.addActivity({ user: user, type: 'new_contact', value: 1, relatedUser: userToDeclare });
+      });
+    }
   })
   .then(function() {
     // Only prepare push if there is somebody to notify
     if (usersToNotify.length > 0) {
-      var firstName = newUser.get('firstName');
-      var lastName = newUser.get('lastName');
-      var newSlover = firstName && lastName ? firstName + ' ' + lastName : newUser.get('username');
+      var firstName = userToDeclare.get('firstName');
+      var lastName = userToDeclare.get('lastName');
+      var newSlover = firstName && lastName ? firstName + ' ' + lastName : userToDeclare.get('username');
       var pushData = {
         channels: usersToNotify,
         data: {
@@ -249,12 +264,21 @@ function declareNewUser(newUser) {
       return Parse.Promise.as(1);
     }
   });
+
+  return promise
+    .then(function() {
+      return Parse.Promise.as(userToDeclare);
+    })
+    .fail(function() {
+      return Parse.Promise.as(userToDeclare);
+    });;
 }
 
 // Exporting for use with require()...
 module.exports = {
   refreshContacts: refreshContacts,
-  declareNewUser: declareNewUser
+  declareNewPhone: declareNewPhone,
+  declareNewFacebook: declareNewFacebook
 };
 
 })();
