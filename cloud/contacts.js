@@ -21,29 +21,41 @@ var externalType = {
 function refreshContacts(user, params) {
   var previousPhoneList = [];
   var previousFacebookList = [];
+  var promises = [];
 
   var queryUd = new Parse.Query('UserData');
   queryUd.equalTo('user', user);
   return queryUd.first().then(function(userData) {
     if (userData) {
-      var hashes = userData.get('contactsHash') ? userData.get('contactsHash') : {};
       // UserData already exists, we update it
+
+      var hashes = userData.get('contactsHash') ? userData.get('contactsHash') : {};
+
       if (params.phone && _.isArray(params.phone.contacts) && _.isString(params.phone.hash)) {
         // To later make it easier to update relations
-        previousPhoneList = userData.get('phoneContacts');
+        previousPhoneList = userData.get('phoneContacts') ? userData.get('phoneContacts') : [];
         // Keep archives for further comparisons
         userData.set('phoneContacts', params.phone.contacts);
         hashes.phone = params.phone.hash;
+        // Create and delete external contacts relations
+        promises.push(updateRelations('phone', userData, previousPhoneList, params.phone.contacts));
       }
+
       if (params.facebook && _.isArray(params.facebook.contacts) && _.isString(params.facebook.hash)) {
         // To later make it easier to update relations
-        previousFacebookList = userData.get('facebookContacts');
+        previousFacebookList = userData.get('facebookContacts') ? userData.get('facebookContacts') : [];
         // Keep archives for further comparisons
         userData.set('facebookContacts', params.facebook.contacts);
         hashes.facebook = params.facebook.hash;
+        // Create and delete external contacts relations
+        promises.push(updateRelations('facebook', userData, previousFacebookList, params.facebook.contacts));
       }
+
       userData.set('contactsHash', hashes);
-      return userData.save();
+
+      return Parse.Promise.when(promises).then(function() {
+        return userData.save();
+      });
     }
     else {
       // UserData doesn't already exists, we create it
@@ -54,75 +66,19 @@ function refreshContacts(user, params) {
       if (params.phone && _.isArray(params.phone.contacts) && _.isString(params.phone.hash)) {
         udObject.phoneContacts = params.phone.contacts;
         newHashes.phone = params.phone.hash;
+        promises.push(updateRelations('phone', userData, [], params.phone.contacts));
       }
       if (params.facebook && _.isArray(params.facebook.contacts) && _.isString(params.facebook.hash)) {
         udObject.facebookContacts = params.facebook.contacts;
         newHashes.facebook = params.facebook.hash;
+        promises.push(updateRelations('facebook', userData, [], params.facebook.contacts));
       }
       udObject.contactsHash = newHashes;
-      return newUserData.save(udObject);
-    }
-  })
-  .then(function(userData) {
-    var externalContacts = userData.relation('externalContacts');
-    var promises = [];
 
-    /**
-     * Phone
-     */
-    var addedPhones = _.difference(params.phone.contacts, previousPhoneList);
-    console.log('DIFF 1 ..');
-    console.log(addedPhones);
-    var objectsToAdd = [];
-    var promisesAdd = [];
-    var query = new Parse.Query('ExternalContact');
-    query.equalTo('type', externalType.phone);
-    _.each(addedPhones, function(phone) {
-      query.equalTo('data', phone);
-      var getOrCreate = query.first().then(function(externalContact) {
-        if (externalContact) {
-          return Parse.Promise.as(externalContact);
-        }
-        else {
-          // doesn't exist, create it
-          var ExternalContact = Parse.Object.extend('ExternalContact');
-          var newExternalContact = new ExternalContact({ data: phone, type: externalType.phone });
-          return newExternalContact.save();
-        }
-      })
-      .then(function(externalContact) {
-        objectsToAdd.push(externalContact);
+      return Parse.Promise.when(promises).then(function() {
+        return newUserData.save(udObject);
       });
-      promisesAdd.push(getOrCreate);
-    });
-    Parse.Promise.when(promisesAdd).then(function() {
-      console.log('TO ADD ..');
-      console.log(objectsToAdd);
-      externalContacts.add(objectsToAdd)
-      promises.push(userData.save());
-    });
-
-    var removedPhones = _.difference(previousPhoneList, params.phone.contacts);
-    console.log('DIFF 2 ..');
-    console.log(removedPhones);
-    var objectsToRemove = [];
-    var query2 = new Parse.Query('ExternalContact');
-    query2.equalTo('type', externalType.phone);
-    query2.containedIn('data', removedPhones);
-    query2.each(function(phone) { objectsToRemove.push(phone); });
-    externalContacts.remove(objectsToRemove);
-    promises.push(userData.save());
-
-    /**
-     * Facebook
-     */
-
-    // @todo
-
-    return Parse.Promise.when(promises).then(function() {
-      console.log('WRAPING UP ..');
-      return userData;
-    });
+    }
   })
   .then(function(userdata) {
     // Get slovers by phoneNumber
@@ -150,6 +106,90 @@ function refreshContacts(user, params) {
   });
 }
 
+/**
+ * Relations
+ */
+function updateRelations(contactType, userData, previousList, newList) {
+  var ExternalContact = Parse.Object.extend('ExternalContact'); // Class to create objects
+  var externalContacts = userData.relation('externalContacts'); // Parse relation
+  var promise = Parse.Promise.as(); // Our running promise that will lead the execution here :)
+
+  console.log('Previous: ' + previousList.length + ' — New: ' + newList.length);
+
+  var newContacts = _.difference(newList, previousList);
+  var objectsToAdd = [];
+
+  // ONE - Get existing contacts and return those needing to be created
+  var query = new Parse.Query('ExternalContact');
+  query.equalTo('type', externalType[contactType]);
+  query.containedIn('data', newContacts);
+  promise = query.find().then(function(contacts) {
+    var existingContacts = [];
+    _.each(contacts, function(contact) {
+      existingContacts.push(contact.get('data'));
+      objectsToAdd.push(contact);
+    });
+    return Parse.Promise.as(_.difference(newContacts, existingContacts));
+  })
+  // TWO — Create missing contacts
+  .then(function(contactsToCreate) {
+    var missingContacts = [];
+    _.each(contactsToCreate, function(contact) {
+      var newExternalContact = new ExternalContact();
+      newExternalContact.set('data', contact);
+      newExternalContact.set('type', externalType[contactType]);
+      missingContacts.push(newExternalContact);
+    });
+    var wait = new Parse.Promise();
+    Parse.Object.saveAll(missingContacts, {
+      success: function(newObjects) {
+        console.log('Created objects: ' + newObjects.length);
+        objectsToAdd = _.union(objectsToAdd, newObjects);
+        wait.resolve(objectsToAdd);
+      },
+      error: function(error) {
+        wait.resolve(1);
+      }
+    });
+    return wait;
+  })
+  // THREE — Save relations for new contacts
+  .then(function() {
+    console.log('To add: ' + objectsToAdd.length);
+    if (objectsToAdd.length) {
+      externalContacts.add(objectsToAdd)
+      return userData.save();
+    }
+    else {
+      return Parse.Promise.as(1);
+    }
+  })
+  // FOUR — Remove relations for contacts not present anymore
+  .then(function() {
+    var removedContacts = _.difference(previousList, newList);
+    var objectsToRemove = [];
+    var query2 = new Parse.Query('ExternalContact');
+    query2.equalTo('type', externalType[contactType]);
+    query2.containedIn('data', removedContacts);
+    query2.each(function(contact) {
+      objectsToRemove.push(contact);
+    })
+    .then(function() {
+      console.log('To remove: ' + objectsToRemove.length);
+      if (objectsToRemove.length) {
+        externalContacts.remove(objectsToRemove);
+        return userData.save();
+      }
+    })
+  });
+
+  // Return after resolving all promises
+  return promise;
+}
+
+/**
+ * Contacts auto refresh on new user + push new friend
+ */
 function declareNewUser(newUser) {
   var phoneNumber = newUser.get('phoneNumber');
 
