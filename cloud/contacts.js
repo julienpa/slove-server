@@ -63,6 +63,67 @@ function refreshContacts(user, params) {
       return newUserData.save(udObject);
     }
   })
+  .then(function(userData) {
+    var externalContacts = userData.relation('externalContacts');
+    var promises = [];
+
+    /**
+     * Phone
+     */
+    var addedPhones = _.difference(params.phone.contacts, previousPhoneList);
+    console.log('DIFF 1 ..');
+    console.log(addedPhones);
+    var objectsToAdd = [];
+    var promisesAdd = [];
+    var query = new Parse.Query('ExternalContact');
+    query.equalTo('type', externalType.phone);
+    _.each(addedPhones, function(phone) {
+      query.equalTo('data', phone);
+      var getOrCreate = query.first().then(function(externalContact) {
+        if (externalContact) {
+          return Parse.Promise.as(externalContact);
+        }
+        else {
+          // doesn't exist, create it
+          var ExternalContact = Parse.Object.extend('ExternalContact');
+          var newExternalContact = new ExternalContact({ data: phone, type: externalType.phone });
+          return newExternalContact.save();
+        }
+      })
+      .then(function(externalContact) {
+        objectsToAdd.push(externalContact);
+      });
+      promisesAdd.push(getOrCreate);
+    });
+    Parse.Promise.when(promisesAdd).then(function() {
+      console.log('TO ADD ..');
+      console.log(objectsToAdd);
+      externalContacts.add(objectsToAdd)
+      promises.push(userData.save());
+    });
+
+    var removedPhones = _.difference(previousPhoneList, params.phone.contacts);
+    console.log('DIFF 2 ..');
+    console.log(removedPhones);
+    var objectsToRemove = [];
+    var query2 = new Parse.Query('ExternalContact');
+    query2.equalTo('type', externalType.phone);
+    query2.containedIn('data', removedPhones);
+    query2.each(function(phone) { objectsToRemove.push(phone); });
+    externalContacts.remove(objectsToRemove);
+    promises.push(userData.save());
+
+    /**
+     * Facebook
+     */
+
+    // @todo
+
+    return Parse.Promise.when(promises).then(function() {
+      console.log('WRAPING UP ..');
+      return userData;
+    });
+  })
   .then(function(userdata) {
     // Get slovers by phoneNumber
     var queryPhone = new Parse.Query(Parse.User);
@@ -85,6 +146,7 @@ function refreshContacts(user, params) {
   },
   function() {
     console.error('Something went wrong on UserData refresh for user ' + user.id);
+    return Parse.Promise.as(1); // Resolve anyway to avoid breaking the following scripts
   });
 }
 
