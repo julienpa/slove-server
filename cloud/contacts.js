@@ -79,9 +79,15 @@ function refreshContacts(user, params) {
           promises.push(updateRelations('phone', newUserData, [], params.phone.contacts));
         }
         if (newHashes.facebook) {
-          promises.push(updateRelations('facebook', newUserData, [], params.facebook.contacts));
+          var promise = updateRelations('facebook', newUserData, [], params.facebook.contacts).then(function() {
+            // First time we have the facebook friends list for this user, so make the push new friends here :)
+            return declareNewFacebook(user, params.facebook.contacts);
+          });
+          promises.push(promise);
         }
-        return Parse.Promise.when(promises);
+        return Parse.Promise.when(promises).then(function() {
+          return Parse.Promise.as(newUserData);
+        });
       });
     }
   })
@@ -205,30 +211,38 @@ function declareNewPhone(userToDeclare) {
   var query = new Parse.Query('UserData');
   query.matchesQuery('externalContacts', extContactsQuery);
 
-  // Always resolve the user! © Advanced non-blocking system :p
   return notifyMatches(query, userToDeclare);
 }
 
 function declareNewFacebook(userToDeclare, fbFriendsList) {
-  var matchedUsers = [];
-  var query = new Parse.Query(Parse.User);
-  query.containedIn('facebookId', fbFriendsList);
-  return query.each(function(user) {
-    matchedUsers.push(user);
+  var usersQuery = new Parse.Query(Parse.User);
+  usersQuery.containedIn('facebookId', fbFriendsList);
+  usersQuery.exists('phoneNumber'); // Only users who finished registering
+
+  var userDataQuery = new Parse.Query('UserData');
+  userDataQuery.matchesQuery('user', usersQuery);
+  //userDataQuery.matchesQuery('objectId', 'xRSyhL05Qc');
+
+  return usersQuery.count().then(function(count) {
+    console.log('COUNT USERS: ' + count);
   })
   .then(function() {
-    var query2 = new Parse.Query('UserData');
-    query2.containedIn('user', matchedUsers);
-    return notifyMatches(query2, userToDeclare);
+    return userDataQuery.count().then(function(count) {
+      console.log('COUNT UD: ' + (!_.isUndefined(count) ? count : '-1'));
+    })
+  })
+  .then(function() {
+    return notifyMatches(userDataQuery, userToDeclare);
   });
 }
 
-function notifyMatches(userDataQquery, userToDeclare) {
+function notifyMatches(userDataQuery, userToDeclare) {
   // Tells the query to retrieve the user object, not just the reference to it
-  userDataQquery.include('user');
+  userDataQuery.include('user');
   var usersToNotify = [];
-  var promise = userDataQquery.each(function(userData) {
+  var promise = userDataQuery.each(function(userData) {
     var user = userData.get('user');
+    console.log('We have this guys! ' + user.id); // @todo: remove
     // Avoid adding people with themselves in their contacts to their... contacts.
     if (user.get('phoneNumber') !== userToDeclare.get('phoneNumber')) {
       usersToNotify.push(user.get('username'));
@@ -265,6 +279,7 @@ function notifyMatches(userDataQquery, userToDeclare) {
     }
   });
 
+  // Always resolve the user! © Advanced non-blocking system :p
   return promise
     .then(function() {
       return Parse.Promise.as(userToDeclare);
@@ -274,7 +289,7 @@ function notifyMatches(userDataQquery, userToDeclare) {
     });;
 }
 
-// Exporting for use with require()...
+// Exporting for use with require(), only export function usable publicly
 module.exports = {
   refreshContacts: refreshContacts,
   declareNewPhone: declareNewPhone,

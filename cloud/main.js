@@ -130,14 +130,11 @@ Parse.Cloud.define('getSlovers', function(request, response) {
   var currentUser = Parse.User.current();
 
   // Will be used as a promise
-  var refresh = new Parse.Promise();
+  var refresh = Parse.Promise.as();
 
   // Refresh contact lists if asked
   if (request.params.phone || request.params.facebook) {
     refresh = contacts.refreshContacts(currentUser, request.params);
-  }
-  else {
-    refresh.resolve(1); // Reslove immediately
   }
 
   // Whether there was a refresh or not, query user's contacts and return it
@@ -147,7 +144,7 @@ Parse.Cloud.define('getSlovers', function(request, response) {
     queryUd.select('sloveContacts');
     queryUd.equalTo('user', currentUser);
     return queryUd.first().then(function(userData) {
-      queryData.sloveContacts = userData.get('sloveContacts');
+      queryData.sloveContacts = userData ? userData.get('sloveContacts') : [];
     });
   })
   .then(function() {
