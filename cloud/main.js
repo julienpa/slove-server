@@ -411,14 +411,17 @@ Parse.Cloud.job('deliverDailySloves', function(request, status) {
       // Update flags to trigger necessary actions
       var numberUpdated = false; // won't be set to true for 1-1
       var creditIncrease = false; // will be set to true only for credit increase
+      // Min and max values for Slove mechanic
+      var minSlove = 3;
+      var maxSlove = 10;
 
       // Slove mechanic!
-      if (currentNumber <= 0 && credit < 5) {
+      if (currentNumber <= 0 && credit < maxSlove) {
         credit++;
         numberUpdated = true;
         creditIncrease = true;
       }
-      else if (currentNumber === credit && credit > 1) {
+      else if (currentNumber === credit && credit > minSlove) {
         credit--;
         numberUpdated = true;
       }
