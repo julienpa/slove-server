@@ -24,10 +24,10 @@ Parse.Cloud.define('sendPhoneCode', function(request, response) {
   // Twilio (phone confirmation)
   var twilioLiveMode = true;
 
-  var testSid = 'AC67aa36effde530903ec7d9a2b11b9498';
-  var testTok = '0b508f57260346c4b909d3f4e063c3b3';
-  var liveSid = 'AC7848a69b13ee905acf3aa3fc00a32270';
-  var liveTok = '30d9b2319348852525081e14ce693749';
+  var testSid = 'AC6703ec7d9a2b11b9498';
+  var testTok = '0b50260346cf4e063c3b3';
+  var liveSid = 'AC7848a69b13ee00a3270';
+  var liveTok = '30d9b2319348852525081';
 
   var sandboxPin = '9863-5189';
   var sandboxPhone = '+33644600124';
